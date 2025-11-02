@@ -1,15 +1,56 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { KnowledgeContent, KnowledgeSchema } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
+// Get API keys from a comma-separated environment variable for robust rotation.
+const API_KEYS = (process.env.API_KEY || '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k);
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let currentApiKeyIndex = 0;
 
 const textModel = 'gemini-2.5-flash';
 const imageModel = 'imagen-4.0-generate-001';
 const videoModel = 'veo-3.1-fast-generate-preview';
+
+const makeApiCallWithRetry = async <T>(apiCall: (ai: GoogleGenAI) => Promise<T>): Promise<T> => {
+    if (API_KEYS.length === 0) {
+        throw new Error("API_KEY environment variable not set or empty.");
+    }
+    
+    let lastError: Error | null = null;
+    
+    for (let i = 0; i < API_KEYS.length; i++) {
+        const keyIndex = (currentApiKeyIndex + i) % API_KEYS.length;
+        const apiKey = API_KEYS[keyIndex];
+        
+        try {
+            const ai = new GoogleGenAI({ apiKey });
+            const result = await apiCall(ai);
+            // On success, update the global index to prioritize this working key for subsequent calls
+            currentApiKeyIndex = keyIndex;
+            return result;
+        } catch (err) {
+            lastError = err as Error;
+            console.warn(`API call failed with key index ${keyIndex}. Error: ${lastError.message}`);
+            
+            const errorMessage = lastError.message.toLowerCase();
+            if (errorMessage.includes('api key not valid') ||
+                errorMessage.includes('permission denied') ||
+                errorMessage.includes('quota exceeded') ||
+                errorMessage.includes('requested entity was not found')) {
+                // This key is likely bad, continue to the next one
+                continue;
+            } else {
+                // It's a different error (network, bad prompt), so fail fast without trying other keys
+                throw lastError;
+            }
+        }
+    }
+    
+    throw new Error(`All API keys failed. Last error: ${lastError?.message || 'Unknown error'}`);
+};
+
 
 const knowledgeSchema = {
   type: Type.OBJECT,
@@ -46,40 +87,39 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 
 
 export const generateKnowledgeContent = async (preferences: string[] = [], region: string): Promise<KnowledgeContent> => {
-  
-  const generateTextPrompt = `
-    You are a witty and culturally-aware AI that creates 'knowledge memes' for a global audience with a local touch.
-    Your goal is to provide a fascinating, obscure, or surprising fact and present it in a humorous way that resonates with current internet culture.
+ return makeApiCallWithRetry(async (ai) => {
+    const generateTextPrompt = `
+        You are a witty and culturally-aware AI that creates 'knowledge memes' for a global audience with a local touch.
+        Your goal is to provide a fascinating, obscure, or surprising fact and present it in a humorous way that resonates with current internet culture.
 
-    **CRITICAL CONTEXT: The user is from ${region}.**
-    You MUST tailor the fact, and especially the humor, to be highly relevant and engaging for someone from this country.
-    - **Humor & Slang:** Use humor, slang, and cultural references that are popular in ${region}. For example, for "India", you might reference Bollywood or cricket. For the "United Kingdom", you could use British slang or wit.
-    - **Fact Selection:** If possible, select facts related to ${region}'s history, inventions, or culture, but only if they are genuinely surprising. Otherwise, use a globally interesting fact but frame the humor for a ${region} audience.
+        **CRITICAL CONTEXT: The user is from ${region}.**
+        You MUST tailor the fact, and especially the humor, to be highly relevant and engaging for someone from this country.
+        - **Humor & Slang:** Use humor, slang, and cultural references that are popular in ${region}. For example, for "India", you might reference Bollywood or cricket. For the "United Kingdom", you could use British slang or wit.
+        - **Fact Selection:** If possible, select facts related to ${region}'s history, inventions, or culture, but only if they are genuinely surprising. Otherwise, use a globally interesting fact but frame the humor for a ${region} audience.
+        
+        **Topic Preference:** ${preferences.length > 0 ? `The fact must be from one of the following topics: ${preferences.join(', ')}.` : 'Pick a random interesting topic.'}
+
+        **Meme Style:** The caption should be in the style of modern, viral internet memes. Think short, punchy, relatable, and slightly ironic or absurd. Use the 'video' mediaType to create expressive, GIF-style reactions where appropriate.
+
+        Generate a JSON object based on the provided schema. The fact should be easily digestible in a few seconds. Do not repeat facts.
+    `;
+
+    const textResponse = await ai.models.generateContent({
+        model: textModel,
+        contents: generateTextPrompt,
+        config: {
+        responseMimeType: 'application/json',
+        responseSchema: knowledgeSchema,
+        temperature: 1.0,
+        },
+    });
+
+    const textDataString = textResponse.text.trim();
+    const textData: KnowledgeSchema = JSON.parse(textDataString);
     
-    **Topic Preference:** ${preferences.length > 0 ? `The fact must be from one of the following topics: ${preferences.join(', ')}.` : 'Pick a random interesting topic.'}
-
-    **Meme Style:** The caption should be in the style of modern, viral internet memes. Think short, punchy, relatable, and slightly ironic or absurd. Use the 'video' mediaType to create expressive, GIF-style reactions where appropriate.
-
-    Generate a JSON object based on the provided schema. The fact should be easily digestible in a few seconds. Do not repeat facts.
-  `;
-
-  // Step 1: Generate the fact, caption, and media prompt
-  const textResponse = await ai.models.generateContent({
-    model: textModel,
-    contents: generateTextPrompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: knowledgeSchema,
-      temperature: 1.0,
-    },
-  });
-
-  const textDataString = textResponse.text.trim();
-  const textData: KnowledgeSchema = JSON.parse(textDataString);
-  
-  if (!textData.fact || !textData.funnyCaption || !textData.mediaPrompt || !textData.mediaType) {
-      throw new Error("Failed to generate complete knowledge content.");
-  }
+    if (!textData.fact || !textData.funnyCaption || !textData.mediaPrompt || !textData.mediaType) {
+        throw new Error("Failed to generate complete knowledge content.");
+    }
     let mediaUrl: string;
 
     if (textData.mediaType === 'video') {
@@ -103,7 +143,7 @@ export const generateKnowledgeContent = async (preferences: string[] = [], regio
             throw new Error("Failed to generate video URL.");
         }
         
-        const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        const videoResponse = await fetch(`${downloadLink}&key=${API_KEYS[currentApiKeyIndex]}`);
         if (!videoResponse.ok) {
             throw new Error(`Failed to download video file: ${videoResponse.statusText}`);
         }
@@ -128,13 +168,14 @@ export const generateKnowledgeContent = async (preferences: string[] = [], regio
         mediaUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
     }
 
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    fact: textData.fact,
-    funnyCaption: textData.funnyCaption,
-    mediaUrl: mediaUrl,
-    mediaType: textData.mediaType,
-  };
+    return {
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        fact: textData.fact,
+        funnyCaption: textData.funnyCaption,
+        mediaUrl: mediaUrl,
+        mediaType: textData.mediaType,
+    };
+ });
 };
 
 export const generateKnowledgeBatch = async (preferences: string[], count: number, region: string): Promise<KnowledgeContent[]> => {
@@ -149,6 +190,9 @@ export const generateKnowledgeBatch = async (preferences: string[], count: numbe
   if (successfulContent.length === 0) {
     const firstError = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
     console.error("Batch generation failed. Reason:", firstError?.reason);
+    if (firstError) {
+        throw firstError.reason;
+    }
     throw new Error("Failed to generate any content. Please check the connection or API key.");
   }
 
@@ -156,18 +200,20 @@ export const generateKnowledgeBatch = async (preferences: string[], count: numbe
 };
 
 export const getExplanation = async (fact: string, mode: 'simple' | 'deep'): Promise<string> => {
-    const prompt = mode === 'simple'
-        ? `A user wants a simple explanation of a fact. Explain the following fact in one or two short paragraphs, as if you're talking to a curious teenager. Keep it clear, concise, and engaging.\n\nFact: "${fact}"`
-        : `A user wants a detailed explanation of a fact. Go deeper into the following fact. Provide more context, history, or related interesting details. Aim for a few well-structured paragraphs.\n\nFact: "${fact}"`;
+    return makeApiCallWithRetry(async (ai) => {
+        const prompt = mode === 'simple'
+            ? `A user wants a simple explanation of a fact. Explain the following fact in one or two short paragraphs, as if you're talking to a curious teenager. Keep it clear, concise, and engaging.\n\nFact: "${fact}"`
+            : `A user wants a detailed explanation of a fact. Go deeper into the following fact. Provide more context, history, or related interesting details. Aim for a few well-structured paragraphs.\n\nFact: "${fact}"`;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: textModel,
-            contents: prompt,
-        });
-        return response.text;
-    } catch (error) {
-        console.error(`Error getting AI explanation (mode: ${mode}):`, error);
-        throw new Error('Failed to get explanation from AI.');
-    }
+        try {
+            const response = await ai.models.generateContent({
+                model: textModel,
+                contents: prompt,
+            });
+            return response.text;
+        } catch (error) {
+            console.error(`Error getting AI explanation (mode: ${mode}):`, error);
+            throw new Error('Failed to get explanation from AI.');
+        }
+    });
 }

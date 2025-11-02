@@ -71,6 +71,13 @@ const App: React.FC = () => {
   const isFetching = useRef(false);
   const touchStartY = useRef(0);
 
+  const handleApiError = useCallback((err: unknown) => {
+    const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+    console.error("API Error caught:", err);
+    setError(errorMessage);
+    setAppState('error');
+  }, []);
+
   const fetchQueue = useCallback(async (prefs: string[], count: number, region: string) => {
     if (isFetching.current) return [];
     isFetching.current = true;
@@ -82,14 +89,12 @@ const App: React.FC = () => {
       }
       return newContent;
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-      setAppState('error');
+      handleApiError(err);
       return [];
     } finally {
       isFetching.current = false;
     }
-  }, []);
+  }, [handleApiError]);
 
   const loadInitialContent = useCallback(async (prefs: string[], region: string) => {
     if (prefs.length === 0) {
@@ -100,15 +105,28 @@ const App: React.FC = () => {
     setError(null);
     setContentQueue([]);
     const initialContent = await fetchQueue(prefs, INITIAL_FETCH_COUNT, region);
+
+    if (appState === 'error') return;
+
     if (initialContent.length > 0) {
         setContentQueue(initialContent);
         setAppState('content');
-    } else if (appState !== 'error') {
+    } else {
         const fallback = storage.getFallbackDrips();
         if (fallback.length > 0) {
             setContentQueue(fallback);
             setAppState('content');
             setError("Couldn't fetch new content. Showing older drips.");
+        } else {
+            const prepackaged = storage.getPrepackagedDrips();
+            if (prepackaged.length > 0) {
+                setContentQueue(prepackaged);
+                setAppState('content');
+                setError("Couldn't connect. Showing some of our favorite drips.");
+            } else {
+                 setError("The AI couldn't generate content and no fallback is available. Please check your connection.");
+                 setAppState('error');
+            }
         }
     }
   }, [fetchQueue, appState]);
@@ -118,14 +136,13 @@ const App: React.FC = () => {
         const savedPreferences = storage.getUserPreferences();
         const savedProfile = storage.getUserProfile();
         setUserProfile(savedProfile);
+        setPreferences(savedPreferences);
         setFavorites(storage.getFavorites());
 
         const region = await getRegionByIP();
         setDetectedRegion(region);
 
         if (savedPreferences.length > 0) {
-            setPreferences(savedPreferences);
-            // If the saved profile doesn't have a region yet (old user), update it
             if (!savedProfile.region) {
                 const updatedProfile = { ...savedProfile, region };
                 setUserProfile(updatedProfile);
@@ -139,7 +156,7 @@ const App: React.FC = () => {
         }
     };
     initializeApp();
-  }, []); // <-- This empty array is the critical fix.
+  }, []);
 
   
   const checkAchievements = useCallback((updatedProfile: UserProfile) => {
@@ -313,7 +330,7 @@ const App: React.FC = () => {
           </>
         );
       }
-      default: return <WelcomeScreen onStart={() => setAppState('preferences')} />;
+      default: return <Loader />;
     }
   };
 

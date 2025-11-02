@@ -7,6 +7,27 @@ const USER_PROFILE_KEY = 'userProfile';
 const COMMENTS_KEY = 'userComments';
 const UNLOCKED_ACHIEVEMENTS_KEY = 'userUnlockedAchievements';
 
+// A small, high-quality set of fallback drips to ensure the app always has content.
+// The mediaUrl is a simple 1x1 transparent GIF to avoid large bundle sizes and ensure fast loading.
+const TRANSPARENT_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+
+const PREPACKAGED_DRIPS: KnowledgeContent[] = [
+    { id: 'prepackaged-1', fact: "A group of pugs is called a 'grumble'.", funnyCaption: "The squad when the pizza arrives.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-2', fact: "The unicorn is the national animal of Scotland.", funnyCaption: "They said be realistic, so I chose a unicorn.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-3', fact: "Honey never spoils. Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still edible.", funnyCaption: "My skincare routine goals.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-4', fact: "A single strand of spaghetti is called a 'spaghetto'.", funnyCaption: "My social battery at the end of the day.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-5', fact: "The Eiffel Tower can be 15 cm taller during the summer due to thermal expansion.", funnyCaption: "Me after one compliment.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-6', fact: "Octopuses have three hearts.", funnyCaption: "Two to fall in love, one to run the systems.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-7', fact: "There are more fake flamingos in the world than real ones.", funnyCaption: "The ultimate influencers.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-8', fact: "Bananas are berries, but strawberries are not.", funnyCaption: "My whole life has been a lie.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-9', fact: "Wombat poop is cube-shaped.", funnyCaption: "Nature's little Minecraft blocks.", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+    { id: 'prepackaged-10', fact: "It's impossible to hum while holding your nose.", funnyCaption: "You just tried it, didn't you?", mediaUrl: TRANSPARENT_GIF, mediaType: 'image' },
+];
+
+export const getPrepackagedDrips = (): KnowledgeContent[] => {
+    return PREPACKAGED_DRIPS;
+}
+
 
 const safeJsonParse = <T>(key: string, defaultValue: T): T => {
     try {
