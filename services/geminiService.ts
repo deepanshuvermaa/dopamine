@@ -120,37 +120,50 @@ export const generateKnowledgeContent = async (preferences: string[] = [], regio
     if (!textData.fact || !textData.funnyCaption || !textData.mediaPrompt || !textData.mediaType) {
         throw new Error("Failed to generate complete knowledge content.");
     }
+    
     let mediaUrl: string;
+    let finalMediaType: 'image' | 'video' = textData.mediaType;
 
-    if (textData.mediaType === 'video') {
-        let operation = await ai.models.generateVideos({
-            model: videoModel,
-            prompt: textData.mediaPrompt,
-            config: {
-                numberOfVideos: 1,
-                resolution: '720p',
-                aspectRatio: '9:16'
+    if (finalMediaType === 'video') {
+        try {
+            let operation = await ai.models.generateVideos({
+                model: videoModel,
+                prompt: textData.mediaPrompt,
+                config: {
+                    numberOfVideos: 1,
+                    resolution: '720p',
+                    aspectRatio: '9:16'
+                }
+            });
+            
+            let waitCount = 0;
+            while (!operation.done) {
+                if (waitCount++ > 10) { // Timeout after ~50 seconds
+                    throw new Error("Video generation timed out.");
+                }
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                operation = await ai.operations.getVideosOperation({ operation: operation });
             }
-        });
-        
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await ai.operations.getVideosOperation({ operation: operation });
-        }
 
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) {
-            throw new Error("Failed to generate video URL.");
+            const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+            if (!downloadLink) {
+                throw new Error("Generated video operation completed but no URL was found.");
+            }
+            
+            const videoResponse = await fetch(`${downloadLink}&key=${API_KEYS[currentApiKeyIndex]}`);
+            if (!videoResponse.ok) {
+                throw new Error(`Failed to download video file: ${videoResponse.statusText}`);
+            }
+            const videoBlob = await videoResponse.blob();
+            mediaUrl = await blobToBase64(videoBlob);
+        } catch (videoError) {
+             console.warn(`Video generation failed for prompt "${textData.mediaPrompt}". Falling back to image. Error:`, videoError);
+             finalMediaType = 'image'; // Fallback to image
         }
-        
-        const videoResponse = await fetch(`${downloadLink}&key=${API_KEYS[currentApiKeyIndex]}`);
-        if (!videoResponse.ok) {
-            throw new Error(`Failed to download video file: ${videoResponse.statusText}`);
-        }
-        const videoBlob = await videoResponse.blob();
-        mediaUrl = await blobToBase64(videoBlob);
+    }
 
-    } else { // 'image'
+    // Generate image if mediaType was 'image' initially, or if video generation failed.
+    if (finalMediaType === 'image') {
         const imageResponse = await ai.models.generateImages({
             model: imageModel,
             prompt: textData.mediaPrompt,
@@ -172,8 +185,8 @@ export const generateKnowledgeContent = async (preferences: string[] = [], regio
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         fact: textData.fact,
         funnyCaption: textData.funnyCaption,
-        mediaUrl: mediaUrl,
-        mediaType: textData.mediaType,
+        mediaUrl: mediaUrl!,
+        mediaType: finalMediaType,
     };
  });
 };

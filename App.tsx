@@ -3,7 +3,6 @@ import type { KnowledgeContent, AppState, ExplanationMode, UserProfile, Comment,
 import { generateKnowledgeBatch, getExplanation } from './services/geminiService';
 import * as storage from './services/storageService';
 import * as achievementService from './services/achievementsService';
-import { getRegionByIP } from './services/locationService';
 import { KnowledgeCard } from './components/KnowledgeCard';
 import { Loader } from './components/Loader';
 import { Controls } from './components/Controls';
@@ -56,7 +55,6 @@ const App: React.FC = () => {
   const [favorites, setFavorites] = useState<KnowledgeContent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<string[]>([]);
-  const [detectedRegion, setDetectedRegion] = useState<string>('United States');
   const [userProfile, setUserProfile] = useState<UserProfile>(storage.getUserProfile());
   const [allComments, setAllComments] = useState<Record<string, Comment[]>>(storage.getComments());
   const [unlockedAchievements, setUnlockedAchievements] = useState<UnlockedAchievement[]>(storage.getUnlockedAchievements());
@@ -71,13 +69,6 @@ const App: React.FC = () => {
   const isFetching = useRef(false);
   const touchStartY = useRef(0);
 
-  const handleApiError = useCallback((err: unknown) => {
-    const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-    console.error("API Error caught:", err);
-    setError(errorMessage);
-    setAppState('error');
-  }, []);
-
   const fetchQueue = useCallback(async (prefs: string[], count: number, region: string) => {
     if (isFetching.current) return [];
     isFetching.current = true;
@@ -89,15 +80,16 @@ const App: React.FC = () => {
       }
       return newContent;
     } catch (err) {
-      handleApiError(err);
+      console.error("Failed to fetch queue:", err);
+      // Silently fail and return empty array. The caller will handle it.
       return [];
     } finally {
       isFetching.current = false;
     }
-  }, [handleApiError]);
+  }, []);
 
   const loadInitialContent = useCallback(async (prefs: string[], region: string) => {
-    if (prefs.length === 0) {
+    if (prefs.length === 0 || !region) {
       setAppState('preferences');
       return;
     }
@@ -105,8 +97,6 @@ const App: React.FC = () => {
     setError(null);
     setContentQueue([]);
     const initialContent = await fetchQueue(prefs, INITIAL_FETCH_COUNT, region);
-
-    if (appState === 'error') return;
 
     if (initialContent.length > 0) {
         setContentQueue(initialContent);
@@ -129,7 +119,7 @@ const App: React.FC = () => {
             }
         }
     }
-  }, [fetchQueue, appState]);
+  }, [fetchQueue]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -139,24 +129,19 @@ const App: React.FC = () => {
         setPreferences(savedPreferences);
         setFavorites(storage.getFavorites());
 
-        const region = await getRegionByIP();
-        setDetectedRegion(region);
-
-        if (savedPreferences.length > 0) {
-            if (!savedProfile.region) {
-                const updatedProfile = { ...savedProfile, region };
-                setUserProfile(updatedProfile);
-                storage.saveUserProfile(updatedProfile);
-                loadInitialContent(savedPreferences, region);
-            } else {
-                 loadInitialContent(savedPreferences, savedProfile.region);
-            }
+        if (savedPreferences.length > 0 && savedProfile.region) {
+            // Returning user with all necessary info
+            loadInitialContent(savedPreferences, savedProfile.region);
+        } else if (savedPreferences.length > 0) {
+            // Returning user, but missing region. Go straight to preferences to set it.
+            setAppState('preferences');
         } else {
+            // New user
             setAppState('welcome');
         }
     };
     initializeApp();
-  }, []);
+  }, [loadInitialContent]);
 
   
   const checkAchievements = useCallback((updatedProfile: UserProfile) => {
@@ -305,7 +290,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (appState) {
       case 'welcome': return <WelcomeScreen onStart={() => setAppState('preferences')} />;
-      case 'preferences': return <PreferenceSelector onComplete={handlePreferencesSubmit} initialPreferences={preferences} initialUsername={userProfile.username} detectedRegion={detectedRegion}/>;
+      case 'preferences': return <PreferenceSelector onComplete={handlePreferencesSubmit} initialPreferences={preferences} initialUsername={userProfile.username} initialRegion={userProfile.region}/>;
       case 'loading': return <Loader />;
       case 'error': return <ErrorDisplay message={error || 'An unknown error occurred.'} onRetry={handleRetry} />;
       case 'profile': return <ProfileScreen profile={userProfile} favorites={favorites} unlockedAchievements={unlockedAchievements} onBack={() => setAppState('content')} onToggleFavorite={toggleFavorite} onUsernameChange={handleUsernameChange} />;

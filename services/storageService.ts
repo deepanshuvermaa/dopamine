@@ -72,7 +72,7 @@ export const saveFallbackDrips = (drips: KnowledgeContent[]): void => {
 
 // User Profile
 export const getUserProfile = (): UserProfile => {
-    return safeJsonParse<UserProfile>(USER_PROFILE_KEY, { username: 'CuriousMind', region: 'United States', dripsViewed: 0, favoritesSaved: 0, commentsMade: 0, dripsCreated: 0 });
+    return safeJsonParse<UserProfile>(USER_PROFILE_KEY, { username: 'CuriousMind', region: '', dripsViewed: 0, favoritesSaved: 0, commentsMade: 0, dripsCreated: 0 });
 };
 
 export const saveUserProfile = (profile: UserProfile): void => {

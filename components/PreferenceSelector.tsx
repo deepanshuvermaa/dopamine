@@ -4,7 +4,7 @@ interface PreferenceSelectorProps {
   onComplete: (preferences: string[], username: string, region: string) => void;
   initialPreferences: string[];
   initialUsername: string;
-  detectedRegion: string;
+  initialRegion: string;
 }
 
 const TOPICS = [
@@ -19,10 +19,10 @@ const COUNTRIES = [
     "France", "Brazil", "Japan", "Nigeria", "South Africa", "Mexico", "Singapore"
 ];
 
-export const PreferenceSelector: React.FC<PreferenceSelectorProps> = ({ onComplete, initialPreferences, initialUsername, detectedRegion }) => {
+export const PreferenceSelector: React.FC<PreferenceSelectorProps> = ({ onComplete, initialPreferences, initialUsername, initialRegion }) => {
   const [selectedTopics, setSelectedTopics] = useState<string[]>(initialPreferences);
   const [username, setUsername] = useState<string>(initialUsername === 'CuriousMind' ? '' : initialUsername);
-  const [region, setRegion] = useState<string>(detectedRegion);
+  const [region, setRegion] = useState<string>(initialRegion);
 
   const toggleTopic = (topic: string) => {
     setSelectedTopics((prev) =>
